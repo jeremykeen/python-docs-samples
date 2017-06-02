@@ -12,29 +12,40 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-import time
 import os
+import time
 
 import manager
 
+import pytest
+
 
 # TODO: Pull from environment
-DEVICE_ID = 'test-device' # TODO: unique?
-PROJECT_ID = '' # TODO: Use environment variable
-REGISTRY_ID = 'test-registry-{}'.format(int(time.time()))
-TOPIC_ID = 'device-events'
+API_KEY = 'LOADENV_API_KEY'  # TODO: Encrypt / use access token
+CLOUD_REGION = 'us-central1'
+DEVICE_ID_TEMPLATE = 'test-device-{}'
+ES_CERT_PATH = '../ec_public.pem'
+RSA_CERT_PATH = '../rsa_cert.pem'
+TOPIC_ID = 'test-device-events-{}'.format(int(time.time()))
+
+PROJECT_ID = os.environ['GCLOUD_PROJECT']
+SERVICE_ACCOUNT_JSON = os.environ['GOOGLE_APPLICATION_CREDENTIALS']
 
 PUBSUB_TOPIC = 'projects/{}/topics/{}'.format(PROJECT_ID, TOPIC_ID)
+REGISTRY_ID = 'test-registry-{}'.format(int(time.time()))
 
-API_KEY = '' # TODO: Encrypt / use access token
-SERVICE_ACCOUNT_JSON = '' # TODO: Use environment variable
 
-CLOUD_REGION = 'us-central1'
+@pytest.fixture(scope='module')
+def test_topic():
+    topic = manager.create_iot_topic(TOPIC_ID)
 
-# TODO: begin - create pubsub topic
-# TODO: end - destroy pubsub topic
+    yield topic
 
-def test_create(capsys):
+    if topic.exists():
+        topic.delete()
+
+
+def test_create_delete_registry(test_topic, capsys):
     manager.open_registry(
             SERVICE_ACCOUNT_JSON, API_KEY, PROJECT_ID, CLOUD_REGION,
             PUBSUB_TOPIC, REGISTRY_ID)
@@ -54,77 +65,146 @@ def test_create(capsys):
             SERVICE_ACCOUNT_JSON, API_KEY, PROJECT_ID, CLOUD_REGION,
             REGISTRY_ID)
 
-# TODO: Make these tests
-"""
-    # Lookup or create the registry.
-    print 'Creating registry', registry_id, 'in project', args.project_id
-    device_registry = DeviceRegistry(
-            args.project_id, registry_id, args.cloud_region,
-            args.service_account_json, args.api_key, args.pubsub_topic)
 
-    # List devices for the (empty) registry
-    print('Current devices in the registry:')
-    for device in device_registry.list_devices():
-        print device
+def test_add_delete_unauth_device(test_topic, capsys):
+    device_id = DEVICE_ID_TEMPLATE.format('UNAUTH')
+    manager.open_registry(
+            SERVICE_ACCOUNT_JSON, API_KEY, PROJECT_ID, CLOUD_REGION,
+            PUBSUB_TOPIC, REGISTRY_ID)
 
-    # Create an RS256 authenticated device. Note that for security, it is very
-    # important that you use unique public/private key pairs for each device
-    # (do not reuse a key pair for multiple devices). This way if a private key
-    # is compromised, only a single device will be affected.
-    rs256_device_id = 'rs256-device'
-    print('Creating RS256 authenticated device', rs256_device_id)
-    device_registry.create_device_with_rs256(
-            rs256_device_id, args.rsa_certificate_file)
+    manager.create_unauth_device(
+            SERVICE_ACCOUNT_JSON, API_KEY, PROJECT_ID, CLOUD_REGION,
+            REGISTRY_ID, device_id)
 
-    # Create an ES256 authenticated device. To demonstrate updating a device,
-    # we will create the device with no authentication, and then update it to
-    # use ES256 for authentication. Note that while one can create a device
-    # without authentication, the MQTT client will not be able to connect to
-    # it.
-    es256_device_id = 'es256-device'
-    print('Creating device without authentication', es256_device_id)
-    device_registry.create_device_with_no_auth(es256_device_id)
+    manager.get_device(
+            SERVICE_ACCOUNT_JSON, API_KEY, PROJECT_ID, CLOUD_REGION,
+            REGISTRY_ID, device_id)
 
-    # Now list devices again
-    print('Current devices in the registry:')
-    for device in device_registry.list_devices():
-        print(device)
+    manager.delete_device(
+            SERVICE_ACCOUNT_JSON, API_KEY, PROJECT_ID, CLOUD_REGION,
+            REGISTRY_ID, device_id)
 
-    # Patch the device with authentication
-    print('Updating device', es256_device_id, 'to use ES256 authentication.')
-    device_registry.patch_es256_for_auth(
-            es256_device_id, args.ec_public_key_file)
+    out, _ = capsys.readouterr()
+    assert 'UNAUTH' in out
 
-    # Now list devices again
-    print('Current devices in the registry:')
-    for device in device_registry.list_devices():
-        print(device)
 
-    # Delete the ES256 device
-    print('Deleting device', es256_device_id)
-    device_registry.delete_device(es256_device_id)
+def test_add_delete_rs256_device(test_topic, capsys):
+    device_id = DEVICE_ID_TEMPLATE.format('RSA256')
+    manager.open_registry(
+            SERVICE_ACCOUNT_JSON, API_KEY, PROJECT_ID, CLOUD_REGION,
+            PUBSUB_TOPIC, REGISTRY_ID)
 
-    # List devices - will only show the RS256 device.
-    print('Current devices in the registry:')
-    for device in device_registry.list_devices():
-        print(device)
+    manager.create_rs256_device(
+            SERVICE_ACCOUNT_JSON, API_KEY, PROJECT_ID, CLOUD_REGION,
+            REGISTRY_ID, device_id, RSA_CERT_PATH)
 
-    # Try to delete the registry. This will fail however, since the registry is
-    # not empty.
-    print('Trying to delete non-empty registry')
-    try:
-        device_registry.delete()
-    except HttpError as e:
-        # This will say that the registry is not empty.
-        print(e)
+    manager.get_device(
+            SERVICE_ACCOUNT_JSON, API_KEY, PROJECT_ID, CLOUD_REGION,
+            REGISTRY_ID, device_id)
 
-    # Delete the RSA devices from the registry
-    print('Deleting device', rs256_device_id)
-    device_registry.delete_device(rs256_device_id)
+    manager.delete_device(
+            SERVICE_ACCOUNT_JSON, API_KEY, PROJECT_ID, CLOUD_REGION,
+            REGISTRY_ID, device_id)
 
-    # Now actually delete registry
-    print('Deleting registry')
-    device_registry.delete()
+    manager.delete_registry(
+            SERVICE_ACCOUNT_JSON, API_KEY, PROJECT_ID, CLOUD_REGION,
+            REGISTRY_ID)
 
-    print 'Completed successfully. Goodbye!'
-"""
+    out, _ = capsys.readouterr()
+    assert 'format : RSA_X509_PEM' in out
+
+
+def test_add_delete_es256_device(test_topic, capsys):
+    device_id = DEVICE_ID_TEMPLATE.format('ES256')
+    manager.open_registry(
+            SERVICE_ACCOUNT_JSON, API_KEY, PROJECT_ID, CLOUD_REGION,
+            PUBSUB_TOPIC, REGISTRY_ID)
+
+    manager.create_es256_device(
+            SERVICE_ACCOUNT_JSON, API_KEY, PROJECT_ID, CLOUD_REGION,
+            REGISTRY_ID, device_id, ES_CERT_PATH)
+
+    manager.get_device(
+            SERVICE_ACCOUNT_JSON, API_KEY, PROJECT_ID, CLOUD_REGION,
+            REGISTRY_ID, device_id)
+
+    manager.delete_device(
+            SERVICE_ACCOUNT_JSON, API_KEY, PROJECT_ID, CLOUD_REGION,
+            REGISTRY_ID, device_id)
+
+    manager.delete_registry(
+            SERVICE_ACCOUNT_JSON, API_KEY, PROJECT_ID, CLOUD_REGION,
+            REGISTRY_ID)
+
+    out, _ = capsys.readouterr()
+    assert 'format : ES256_PEM' in out
+
+
+def test_add_patch_delete_rs256(test_topic, capsys):
+    device_id = DEVICE_ID_TEMPLATE.format('PATCHME')
+    manager.open_registry(
+            SERVICE_ACCOUNT_JSON, API_KEY, PROJECT_ID, CLOUD_REGION,
+            PUBSUB_TOPIC, REGISTRY_ID)
+
+    manager.create_rs256_device(
+            SERVICE_ACCOUNT_JSON, API_KEY, PROJECT_ID, CLOUD_REGION,
+            REGISTRY_ID, device_id, RSA_CERT_PATH)
+
+    manager.get_device(
+            SERVICE_ACCOUNT_JSON, API_KEY, PROJECT_ID, CLOUD_REGION,
+            REGISTRY_ID, device_id)
+    out, _ = capsys.readouterr()
+    assert 'format : RSA_X509_PEM' in out
+
+    manager.patch_es256_auth(
+            SERVICE_ACCOUNT_JSON, API_KEY, PROJECT_ID, CLOUD_REGION,
+            REGISTRY_ID, device_id, ES_CERT_PATH)
+
+    manager.get_device(
+            SERVICE_ACCOUNT_JSON, API_KEY, PROJECT_ID, CLOUD_REGION,
+            REGISTRY_ID, device_id)
+    out, _ = capsys.readouterr()
+    assert 'format : ES256_PEM' in out
+
+    manager.delete_device(
+            SERVICE_ACCOUNT_JSON, API_KEY, PROJECT_ID, CLOUD_REGION,
+            REGISTRY_ID, device_id)
+
+    manager.delete_registry(
+            SERVICE_ACCOUNT_JSON, API_KEY, PROJECT_ID, CLOUD_REGION,
+            REGISTRY_ID)
+
+
+def test_add_patch_delete_es256(test_topic, capsys):
+    device_id = DEVICE_ID_TEMPLATE.format('PATCHME')
+    manager.open_registry(
+            SERVICE_ACCOUNT_JSON, API_KEY, PROJECT_ID, CLOUD_REGION,
+            PUBSUB_TOPIC, REGISTRY_ID)
+
+    manager.create_es256_device(
+            SERVICE_ACCOUNT_JSON, API_KEY, PROJECT_ID, CLOUD_REGION,
+            REGISTRY_ID, device_id, ES_CERT_PATH)
+
+    manager.get_device(
+            SERVICE_ACCOUNT_JSON, API_KEY, PROJECT_ID, CLOUD_REGION,
+            REGISTRY_ID, device_id)
+    out, _ = capsys.readouterr()
+    assert 'format : ES256_PEM' in out
+
+    manager.patch_rsa256_auth(
+            SERVICE_ACCOUNT_JSON, API_KEY, PROJECT_ID, CLOUD_REGION,
+            REGISTRY_ID, device_id, RSA_CERT_PATH)
+
+    manager.get_device(
+            SERVICE_ACCOUNT_JSON, API_KEY, PROJECT_ID, CLOUD_REGION,
+            REGISTRY_ID, device_id)
+    out, _ = capsys.readouterr()
+    assert 'format : RSA_X509_PEM' in out
+
+    manager.delete_device(
+            SERVICE_ACCOUNT_JSON, API_KEY, PROJECT_ID, CLOUD_REGION,
+            REGISTRY_ID, device_id)
+
+    manager.delete_registry(
+            SERVICE_ACCOUNT_JSON, API_KEY, PROJECT_ID, CLOUD_REGION,
+            REGISTRY_ID)
