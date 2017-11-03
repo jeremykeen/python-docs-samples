@@ -16,55 +16,39 @@
 
 """Loads data into BigQuery from an object in Google Cloud Storage.
 
-For more information, see the README.md under /bigquery.
+For more information, see the README.rst.
 
 Example invocation:
-    $ python load_data_from_gcs.py example_dataset example_table \
+    $ python load_data_from_gcs.py example_dataset example_table \\
         gs://example-bucket/example-data.csv
 
 The dataset and table should already exist.
 """
 
 import argparse
-import time
-import uuid
 
 from google.cloud import bigquery
 
 
-def load_data_from_gcs(dataset_name, table_name, source):
+def load_data_from_gcs(dataset_id, table_id, source):
     bigquery_client = bigquery.Client()
-    dataset = bigquery_client.dataset(dataset_name)
-    table = dataset.table(table_name)
-    job_name = str(uuid.uuid4())
+    dataset_ref = bigquery_client.dataset(dataset_id)
+    table_ref = dataset_ref.table(table_id)
 
-    job = bigquery_client.load_table_from_storage(
-        job_name, table, source)
+    job = bigquery_client.load_table_from_uri(source, table_ref)
 
-    job.begin()
-
-    wait_for_job(job)
+    job.result()  # Waits for job to complete
 
     print('Loaded {} rows into {}:{}.'.format(
-        job.output_rows, dataset_name, table_name))
-
-
-def wait_for_job(job):
-    while True:
-        job.reload()
-        if job.state == 'DONE':
-            if job.error_result:
-                raise RuntimeError(job.errors)
-            return
-        time.sleep(1)
+        job.output_rows, dataset_id, table_id))
 
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser(
         description=__doc__,
         formatter_class=argparse.RawDescriptionHelpFormatter)
-    parser.add_argument('dataset_name')
-    parser.add_argument('table_name')
+    parser.add_argument('dataset_id')
+    parser.add_argument('table_id')
     parser.add_argument(
         'source', help='The Google Cloud Storage object to load. Must be in '
         'the format gs://bucket_name/object_name')
@@ -72,6 +56,6 @@ if __name__ == '__main__':
     args = parser.parse_args()
 
     load_data_from_gcs(
-        args.dataset_name,
-        args.table_name,
+        args.dataset_id,
+        args.table_id,
         args.source)
