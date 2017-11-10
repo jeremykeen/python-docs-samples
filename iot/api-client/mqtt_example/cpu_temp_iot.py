@@ -40,10 +40,11 @@ import argparse
 import datetime
 import time
 import json
+import subprocess
+
 
 import jwt
 import paho.mqtt.client as mqtt
-import Adafruit_DHT
 
 
 
@@ -158,11 +159,6 @@ def parse_command_line_args():
 def main():
     args = parse_command_line_args()
 
-    sensor_args = {'11': Adafruit_DHT.DHT11,
-                   '22': Adafruit_DHT.DHT22,
-                   '2302': Adafruit_DHT.AM2302}
-    sensor = sensor_args['2302']
-    pin = '26'
 
     # Create our MQTT client. The client_id is a unique string that identifies
     # this device. For Google Cloud IoT Core, it must be in the format below.
@@ -198,25 +194,31 @@ def main():
 
     mqtt_topic = '/devices/{}/events'.format(args.device_id)
 
+
     # Publish num_messages mesages to the MQTT bridge once per second.
     for i in range(1, args.num_messages + 1):
-        dt = datetime.datetime.utcnow()
-        humidity, temperature = Adafruit_DHT.read_retry(sensor, pin)
-        temperature = temperature * 9 / 5.0 + 32
+        dt = str(datetime.datetime.utcnow())
+        # Get the Raspberry Pi's processor temperature.
+        # if subprocess.call(["which", "/opt/vc/bin/vcgencmd"]) == 0:
+        #     temp = subprocess.check_output(["sudo", "/opt/vc/bin/vcgencmd", "measure_temp"]).split('=', 1)[-1].rstrip()
+        # # Get Mac's proc temp if "sudo gem install iStats" is installed
+        # elif subprocess.call(["which", "istats"]) == 0:
+        #     #temp = subprocess.check_output(["istats"]).decode().split(":")[-1].split("\n")[0]
+        #     temp = "".join(subprocess.check_output(["istats"]).decode().split()).split(":")[-1].split("F")[0]
+        # else:
+        temp = 62
         data = {
+            'timestamp' : dt,
             'device_id' : args.device_id,
-            'temp' : temperature,
-            'humidity' : humidity
+            'temp' : temp,
+            'humidity' : None
         }
+
         json_str = json.dumps(data)
-        # payload = '{0},{1},{2:0.1f},{3:0.1f}'.format(
-        #         dt, args.device_id, temperature, humidity)
-        # print(
-        #        'Publishing message {}/{}: \'{}\''.format(
-        #                 i, args.num_messages, payload))
-        # Publish "payload" to the MQTT topic. qos=1 means at least once
-        # delivery. Cloud IoT Core also supports qos=0 for at most once
-        # delivery.
+
+        print(
+        'Publishing message {}/{}: \'{}\''.format(
+               i, args.num_messages, json_str))
         client.publish(mqtt_topic, json_str, qos=1)
         time.sleep(5)
 
